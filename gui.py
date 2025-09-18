@@ -9,6 +9,7 @@ import requests
 from datetime import datetime
 import google.generativeai as genai
 import os
+import pickle
 
 # Gemini API Setup
 genai.configure(api_key="AIzaSyChtDxrHJ0ALChw5GLLnK9Qemyb8uV1kL0")
@@ -74,7 +75,7 @@ def make_card(title, subtitle, color="#4CAF50"):
     """
 
 # Streamlit UI Setup
-st.set_page_config(page_title="🌱 AI Crop & Fertilizer", layout="centered")
+st.set_page_config(page_title="🌱 AI-Based Soil Image, Plant Disease Detection, and Smart Crop-Fertilizer Recommendation System", layout="centered")
 st.markdown("""
 <style>
 .stTabs [role="tablist"] button {font-size:16px;font-weight:600;border-radius:10px;padding:8px 20px;}
@@ -82,10 +83,10 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🌱 AI-based Soil, Crop & Fertilizer Recommendation")
+st.title("🌱 AI-Based Soil Image, Plant Disease Detection, and Smart Crop-Fertilizer Recommendation System")
 
 tab_options = ["🖼 Soil Classifier","🌾 Crop Recommendation","🧪 Fertilizer Suggestion",
-               "🤖 Gemini AI Summary","🏛 Government Schemes"]
+               "🌱 Plant Disease Detection","🤖 Gemini AI Summary","🏛 Government Schemes"]
 
 tabs = st.tabs(tab_options)
 
@@ -191,16 +192,53 @@ with tabs[2]:
         st.markdown(make_card("💡 Suggested Fertilizers", fert_suggestions, "#009688"), unsafe_allow_html=True)
         st.session_state["fert_result"] = {"crop": crop_name,"category": fert_category,"suggestions": fert_suggestions}
 
-# Tab 3: Gemini AI Summary
+# Tab 3: Plant Disease Detection
 with tabs[3]:
+    st.header("🌱 Plant Disease Detection")
+    st.write("Upload a leaf image to check if the plant is healthy or diseased.")
+
+    @st.cache_resource
+    def load_disease_model():
+        model = tf.keras.models.load_model("disease_model.h5")
+        with open("class_indices.pkl", "rb") as f:
+            class_indices = pickle.load(f)
+        labels = {v: k for k, v in class_indices.items()}  # Reverse mapping
+        return model, labels
+
+    disease_model, disease_labels = load_disease_model()
+
+    uploaded_file = st.file_uploader("Upload Leaf Image", type=["jpg", "jpeg", "png"], key="disease_upload")
+
+    if uploaded_file is not None:
+        st.image(uploaded_file, caption="Uploaded Image", use_container_width=True)
+
+        # Preprocess image
+        img = tf.keras.utils.load_img(uploaded_file, target_size=(224, 224))
+        img_array = tf.keras.utils.img_to_array(img) / 255.0
+        img_array = np.expand_dims(img_array, axis=0)
+
+        # Prediction
+        predictions = disease_model.predict(img_array)
+        predicted_class = np.argmax(predictions, axis=1)[0]
+        confidence = np.max(predictions) * 100
+
+        st.success(f"✅ Prediction: *{disease_labels[predicted_class]}*")
+        st.info(f"🔍 Confidence: {confidence:.2f}%")
+        
+        # Save plant health summary for Gemini
+        st.session_state["disease_result"] = f"{disease_labels[predicted_class]} ({confidence:.2f}% confidence)"
+
+# Tab 4: Gemini AI Summary
+with tabs[4]:
     st.header("🤖 Gemini AI Summary")
-    available_models = ["gemini-2.5-pro","gemini-2.5-flash","gemini-2.0-flash"]
+    available_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"]
     selected_model = st.selectbox("Select Gemini Model", available_models)
     gemini_model = genai.GenerativeModel(selected_model)
 
     soil_features = st.session_state.get("soil_features")
     top_crop = st.session_state.get("top_crop")
     fert_result = st.session_state.get("fert_result")
+    disease_result = st.session_state.get("disease_result")  # 👈 store plant disease summary in Tab 3
 
     if soil_features and top_crop and fert_result:
         combined_info = f"""
@@ -211,6 +249,11 @@ Season: {soil_features['season']}
 Crop: {top_crop}
 Fertilizer: {fert_result}
 """
+
+        # Add disease only if available
+        if disease_result:
+            combined_info += f"\nPlant Health: {disease_result}"
+
         try:
             response = gemini_model.generate_content(combined_info)
             summary_text = getattr(response, "content", None) or getattr(response, "text", "No response")
@@ -224,8 +267,8 @@ Fertilizer: {fert_result}
     else:
         st.info("⚠ Run Crop & Fertilizer first.")
 
-# Tab 4: Government Schemes
-with tabs[4]:
+# Tab 5: Government Schemes
+with tabs[5]:
     st.header("🏛 Government Schemes")
     
     # Example: many schemes to test scrolling
